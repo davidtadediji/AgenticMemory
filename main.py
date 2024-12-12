@@ -1,5 +1,6 @@
 import os
 
+from PIL import Image as PILImage
 from langchain_openai import ChatOpenAI
 from langgraph.constants import START
 from langgraph.graph import MessagesState, StateGraph, END
@@ -9,7 +10,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 base_model = os.getenv("BASE_MODEL")
-llm = ChatOpenAI(model=base_model, max_retries=2)
+llm = ChatOpenAI(model=base_model, max_retries=2, max_tokens=80, temperature=0)
 
 
 class ConversationState(MessagesState):
@@ -17,6 +18,9 @@ class ConversationState(MessagesState):
 
 
 def call_model(state: ConversationState):
+    """
+    Process the current conversation state by invoking the language model.
+    """
     summary = state.get("summary", "")
 
     if summary:
@@ -26,7 +30,7 @@ def call_model(state: ConversationState):
         messages = [SystemMessage(content=system_message)] + state["messages"]
 
     else:
-        messages = state['messages']
+        messages = state["messages"]
 
     response = llm.invoke(messages)
 
@@ -34,6 +38,8 @@ def call_model(state: ConversationState):
 
 
 def summarize_conversation(state: ConversationState) -> ConversationState:
+    """
+    Generate or update a summary of the current conversation."""
 
     summary = state.get("summary", "")
 
@@ -57,14 +63,18 @@ def summarize_conversation(state: ConversationState) -> ConversationState:
 
 
 def should_continue(state: ConversationState):
-    messages = state['messages']
+    """
+    Determine whether the conversation should continue or move to summarization.
+    """
+    messages = state["messages"]
 
     if len(messages) > 6:
         return "summarize_conversation"
 
     return END
 
-config = {"configurable": {"thread_id" : "1"}}
+
+config = {"configurable": {"thread_id": "1"}}
 
 workflow = StateGraph(ConversationState)
 
@@ -78,9 +88,37 @@ workflow.add_edge("summarize_conversation", END)
 memory = MemorySaver()
 llm_agent = workflow.compile(checkpointer=memory)
 
+
+# Display graph
+image_data = llm_agent.get_graph().draw_mermaid_png()
+
+from pathlib import Path
+
+# Get the absolute path to the project root or app directory
+project_root = (
+    Path(__file__).resolve().parent
+)  # This is the directory where server.py is located
+resources_dir = (
+    project_root / "resources"
+)  # Use the / operator to join paths (pathlib feature)
+
+# Ensure the resources directory exists
+resources_dir.mkdir(parents=True, exist_ok=True)
+
+graph_image = resources_dir / "graph.png"  # Creates an absolute path to the file
+
+
+with open(graph_image, "wb") as f:
+    f.write(image_data)
+
+
+img = PILImage.open("resources/graph.png")
+img.show()
+
+
 while True:
     user_query = input()
     message = HumanMessage(content=user_query)
     output = llm_agent.invoke({"messages": [message]}, config)
-    for m in output['messages'][-1:]:
+    for m in output["messages"][-1:]:
         m.pretty_print()
