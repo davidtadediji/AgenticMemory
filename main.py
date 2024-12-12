@@ -5,12 +5,18 @@ from langchain_openai import ChatOpenAI
 from langgraph.constants import START
 from langgraph.graph import MessagesState, StateGraph, END
 from langchain_core.messages import RemoveMessage, HumanMessage, SystemMessage
-from langgraph.checkpoint.memory import MemorySaver
+from langgraph.checkpoint.sqlite import SqliteSaver
 from dotenv import load_dotenv
+
+import sqlite3
+
+db_path = "state_db/experiment.db"
+
+conn = sqlite3.connect(db_path, check_same_thread=False)
 
 load_dotenv()
 base_model = os.getenv("BASE_MODEL")
-llm = ChatOpenAI(model=base_model, max_retries=2, max_tokens=80, temperature=0)
+llm = ChatOpenAI(model=base_model, max_retries=2, max_tokens=80, temperature=1)
 
 
 class ConversationState(MessagesState):
@@ -85,7 +91,7 @@ workflow.add_edge(START, "conversation")
 workflow.add_conditional_edges("conversation", should_continue)
 workflow.add_edge("summarize_conversation", END)
 
-memory = MemorySaver()
+memory = SqliteSaver(conn)
 llm_agent = workflow.compile(checkpointer=memory)
 
 
@@ -116,9 +122,18 @@ img = PILImage.open("resources/graph.png")
 img.show()
 
 
+
+
 while True:
     user_query = input()
-    message = HumanMessage(content=user_query)
-    output = llm_agent.invoke({"messages": [message]}, config)
-    for m in output["messages"][-1:]:
-        m.pretty_print()
+    if user_query == "get_prev":
+        state_snapshot = llm_agent.get_state(config)
+        for value in state_snapshot.values['messages']:
+            value.pretty_print()
+    else:
+        message = HumanMessage(content=user_query)
+        output = llm_agent.invoke({"messages": [message]}, config)
+        for message in output["messages"][-1:]:
+            message.pretty_print()
+
+
